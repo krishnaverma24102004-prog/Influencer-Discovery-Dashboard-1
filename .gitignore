@@ -1,0 +1,35 @@
+# Virtual Environments
+venv/
+env/
+.env_dir/
+*.env
+
+# Python Cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment Variables & Secrets
+.env
+.streamlit/secrets.toml
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary and Cache Files
+.cache/
+.pytest_cache/
+*.log
+
+# Build and Distribution
+dist/
+build/
+*.egg-info/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
