@@ -3,6 +3,7 @@ import pandas as pd
 import tempfile
 import os
 import logging
+import openai
 
 from search.search_manager import execute_search
 from ranking.ranking_engine import calculate_scores
@@ -47,14 +48,20 @@ Influencers:
         )
         content = response.choices[0].message.content
         if not content:
-            st.error("OpenRouter returned empty content.")
+            st.error("AI Summary unavailable. The remaining analysis is available below.")
             return
         st.markdown(content)
+    except openai.RateLimitError as e:
+        logger.exception("Rate limit exceeded for AI Summary.")
+        retry_after = e.response.headers.get("retry-after") if hasattr(e, 'response') and hasattr(e.response, 'headers') else None
+        if retry_after:
+            st.warning(f"AI Summary is temporarily unavailable because the selected free OpenRouter provider is rate-limited.\nPlease try again in approximately {retry_after} seconds.")
+        else:
+            st.warning("AI Summary is temporarily unavailable due to rate limiting.\nPlease try again later.")
+        st.error("AI Summary unavailable. The remaining analysis is available below.")
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        print(e)
-        st.exception(e)
+        logger.exception("Failed to generate AI summary.")
+        st.error("AI Summary unavailable. The remaining analysis is available below.")
 
 def main():
     st.title("🔍 AI-Powered Influencer Intelligence Platform")
@@ -227,15 +234,21 @@ Influencers: {top_5}
                         )
                         content = response.choices[0].message.content
                         if not content:
-                            st.session_state.ai_summary_text = "OpenRouter returned empty content."
+                            st.session_state.ai_summary_text = "AI Summary unavailable. The remaining analysis is available below."
                         else:
                             st.session_state.ai_summary_text = content
+                    except openai.RateLimitError as e:
+                        logger.exception("Rate limit exceeded for AI Summary.")
+                        retry_after = e.response.headers.get("retry-after") if hasattr(e, 'response') and hasattr(e.response, 'headers') else None
+                        
+                        warning_msg = ""
+                        if retry_after:
+                            warning_msg = f"⚠️ **AI Summary is temporarily unavailable because the selected free OpenRouter provider is rate-limited.**\n*Please try again in approximately {retry_after} seconds.*\n\n"
+                            
+                        st.session_state.ai_summary_text = warning_msg + "AI Summary unavailable. The remaining analysis is available below."
                     except Exception as e:
-                        import traceback
-                        print(traceback.format_exc())
-                        print(e)
-                        st.exception(e)
-                        st.session_state.ai_summary_text = f"Could not generate AI summary at this time. Error: {e}"
+                        logger.exception("Failed to generate AI summary.")
+                        st.session_state.ai_summary_text = "AI Summary unavailable. The remaining analysis is available below."
                         
         st.markdown(st.session_state.ai_summary_text)
 
