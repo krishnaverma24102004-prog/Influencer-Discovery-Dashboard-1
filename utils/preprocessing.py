@@ -4,12 +4,13 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+import re
+
 def parse_followers(val) -> int:
-    if pd.isna(val) or val == "" or val == "-":
+    if pd.isna(val) or val is None:
         return 0
-    
     val_str = str(val).lower().replace(',', '').replace('followers', '').replace('₹', '').strip()
-    if not val_str:
+    if val_str in ["", "nan", "none", "null", "unknown", "n/a", "blank", "-"]:
         return 0
         
     multiplier = 1
@@ -28,76 +29,87 @@ def parse_followers(val) -> int:
     except ValueError:
         return 0
 
+def normalize_col_name(col: str) -> str:
+    return re.sub(r'[\s_-]+', '', str(col)).lower()
+
+ALIAS_MAP = {
+    # Name
+    "name": "Name", "creator": "Name", "influencer": "Name", "creatorname": "Name", "fullname": "Name",
+    # Handle
+    "handle": "Handle", "username": "Handle", "account": "Handle", "profile": "Handle", "url": "Handle", "link": "Handle",
+    # Platform
+    "platform": "Platform", "channel": "Platform", "source": "Platform", "socialplatform": "Platform",
+    # Followers
+    "followers": "Followers", "followercount": "Followers", "followerscount": "Followers", "audience": "Followers", "subscribers": "Followers", "subs": "Followers", "reach": "Followers",
+    # Language
+    "language": "Language", "lang": "Language",
+    # Bio
+    "bio": "Bio", "description": "Bio", "about": "Bio", "profiledescription": "Bio",
+    # Recent Posts
+    "recentposts": "Recent Posts", "posts": "Recent Posts", "latestposts": "Recent Posts", "recentcontent": "Recent Posts", "content": "Recent Posts", "tweet": "Recent Posts", "caption": "Recent Posts"
+}
+
+def text_to_blank(val):
+    if pd.isna(val) or val is None:
+        return "Blank"
+    val_str = str(val).strip()
+    if val_str.lower() in ["", "nan", "none", "null"]:
+        return "Blank"
+    return val_str
+
 def validate_and_clean_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Validates the schema of the uploaded dataframe, 
-    cleans missing values, normalizes text fields, and standardizes follower counts.
+    Validates and cleans the uploaded dataframe.
+    Normalizes column names, applies blank rules to missing fields,
+    and standardizes follower counts without failing on missing optional columns.
     """
-    required_columns = [
-        "Name", "Handle", "Platform", 
-        "Followers", "Language", "Bio", "Recent Posts"
-    ]
     
-    # 3. Automatically trim whitespace from string values
+    # 3. Automatically trim whitespace from all string values globally
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].apply(lambda x: str(x).strip() if pd.notna(x) and isinstance(x, str) else x)
         
-    # 3. Automatically trim whitespace from column names
-    df.columns = df.columns.str.strip()
-    
-    # 4. Normalize column names regardless of case
-    df_columns_lower = {str(col).lower(): col for col in df.columns}
-    
-    # Add common aliases for followers
-    col_aliases = {
-        "follower count": "followers",
-        "followers count": "followers"
-    }
-    
-    missing_cols = []
+    # Normalize column names
     rename_mapping = {}
-    
-    for required in required_columns:
-        req_lower = required.lower()
-        
-        found = False
-        if req_lower in df_columns_lower:
-            rename_mapping[df_columns_lower[req_lower]] = required
-            found = True
-        else:
-            for alias, target in col_aliases.items():
-                if target == req_lower and alias in df_columns_lower:
-                    rename_mapping[df_columns_lower[alias]] = required
-                    found = True
-                    break
-                    
-        if not found:
-            missing_cols.append(required)
+    for col in df.columns:
+        norm_col = normalize_col_name(col)
+        if norm_col in ALIAS_MAP:
+            rename_mapping[col] = ALIAS_MAP[norm_col]
             
-    # 9. Preserve strict validation only for missing required columns
-    if missing_cols:
-        error_msg = f"Missing required columns: {', '.join(missing_cols)}"
+    cleaned_df = df.rename(columns=rename_mapping)
+    
+    # 5. Only fail if BOTH Name and Handle are missing.
+    if "Name" not in cleaned_df.columns and "Handle" not in cleaned_df.columns:
+        error_msg = "Dataset is missing both Name and Handle columns. At least one identity field is required."
         logger.error(error_msg)
         raise ValueError(error_msg)
         
-    cleaned_df = df.rename(columns=rename_mapping)
+    # 4. Missing optional columns should be created automatically.
+    # 9. Handle blank or missing values gracefully.
+    text_cols = [
+        "Name", "Handle", "Platform", "Language", "Bio", "Recent Posts", 
+        "Content Niche", "Political Orientation", "Reasoning"
+    ]
     
-    # 6. Attempt recovery instead of rejecting: Fill sensible defaults
-    cleaned_df["Name"] = cleaned_df["Name"].fillna("Unknown")
-    cleaned_df["Handle"] = cleaned_df["Handle"].fillna("Unknown")
-    cleaned_df["Platform"] = cleaned_df["Platform"].fillna("Unknown")
-    
-    # 2. Normalize follower counts into integers
+    for col in text_cols:
+        if col not in cleaned_df.columns:
+            cleaned_df[col] = "Blank"
+        cleaned_df[col] = cleaned_df[col].apply(text_to_blank)
+        
+    # Normalize followers
+    if "Followers" not in cleaned_df.columns:
+        cleaned_df["Followers"] = 0
     cleaned_df["Followers"] = cleaned_df["Followers"].apply(parse_followers)
     
-    cleaned_df["Language"] = cleaned_df["Language"].fillna("Unknown")
-    cleaned_df["Bio"] = cleaned_df["Bio"].fillna("")
-    cleaned_df["Recent Posts"] = cleaned_df["Recent Posts"].fillna("")
+    # Numeric fields blank to 0
+    for col in ["Confidence Score", "Relevance Score"]:
+        if col in cleaned_df.columns:
+            cleaned_df[col] = cleaned_df[col].apply(lambda x: 0 if pd.isna(x) or str(x).strip().lower() in ["", "nan", "none", "null", "blank"] else x)
+            cleaned_df[col] = pd.to_numeric(cleaned_df[col], errors='coerce').fillna(0).astype(int)
     
-    cleaned_df["Platform"] = cleaned_df["Platform"].astype(str).str.title()
-    cleaned_df["Language"] = cleaned_df["Language"].astype(str).str.title()
+    # Title casing for visual consistency for Platform and Language
+    cleaned_df["Platform"] = cleaned_df["Platform"].apply(lambda x: x.title() if x != "Blank" else x)
+    cleaned_df["Language"] = cleaned_df["Language"].apply(lambda x: x.title() if x != "Blank" else x)
     
-    # 9. strict validation for empty datasets
     if len(cleaned_df) == 0:
         raise ValueError("Dataset is empty after preprocessing.")
         
@@ -112,5 +124,5 @@ def extract_combined_text(row: pd.Series) -> str:
     posts = str(row.get("Recent Posts", ""))
     
     # Clean up whitespace
-    combined = f"{bio} {posts}".strip()
+    combined = f"{bio} {posts}".replace("Blank", "").strip()
     return combined

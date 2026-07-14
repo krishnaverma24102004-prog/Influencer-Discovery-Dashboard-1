@@ -37,7 +37,7 @@ def load_from_csv(filepath: str) -> List[Dict[str, Any]]:
         cleaned_df = validate_and_clean_dataframe(df)
         
         if skipped_rows > 0:
-            st.warning(f"Imported {len(cleaned_df)} rows successfully. {skipped_rows} malformed rows were skipped.")
+            st.warning(f"Imported {len(cleaned_df)} rows successfully. Skipped {skipped_rows} malformed rows.")
             
         return cleaned_df.to_dict(orient="records")
         
