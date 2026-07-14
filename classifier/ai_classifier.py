@@ -78,16 +78,31 @@ Return ONLY valid JSON in the exact format below:
         
         content = response.choices[0].message.content
         if not content:
-            raise ValueError("LLM returned empty or null content.")
+            logger.error("LLM returned empty or null content.")
+            return fallback_result
         
         content = content.strip()
+        
+        # Remove markdown code blocks if present
+        if content.startswith("```"):
+            first_nl = content.find("\n")
+            last_backticks = content.rfind("```")
+            if first_nl != -1 and last_backticks != -1 and last_backticks > first_nl:
+                content = content[first_nl:last_backticks].strip()
         
         # Robust JSON extraction
         json_match = re.search(r'\{.*\}', content, re.DOTALL)
         if json_match:
             content = json_match.group(0)
+        else:
+            logger.error(f"Failed to find JSON structure in content.")
+            return fallback_result
             
-        result = json.loads(content)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"JSONDecodeError: {e}. Content snippet: {content[:100]}")
+            return fallback_result
         
         # Validate returned JSON and apply defaults for missing expected fields
         validated_result = {
@@ -110,44 +125,23 @@ Return ONLY valid JSON in the exact format below:
         return validated_result
 
     except openai.APITimeoutError as e:
-        logger.error(f"Network timeout while classifying '{name}'.")
-        st.error(f"OpenRouter Timeout: {e}")
+        logger.error(f"Network timeout while classifying '{name}': {e}")
         return fallback_result
     except openai.RateLimitError as e:
-        logger.error(f"Rate limit or quota exceeded while classifying '{name}'.")
-        st.error(f"OpenRouter Rate Limit (429): {e}")
+        logger.error(f"Rate limit or quota exceeded while classifying '{name}': {e}")
         return fallback_result
     except openai.APIConnectionError as e:
-        logger.error(f"Network connection error while classifying '{name}'.")
-        st.error(f"OpenRouter Connection Error: {e}")
+        logger.error(f"Network connection error while classifying '{name}': {e}")
         return fallback_result
     except openai.AuthenticationError as e:
-        logger.error(f"Authentication error for '{name}'.")
-        st.error(f"OpenRouter Authentication Error (401/403): {e}")
+        logger.error(f"Authentication error for '{name}': {e}")
         return fallback_result
     except openai.NotFoundError as e:
-        logger.error(f"Model not found for '{name}'.")
-        st.error(f"OpenRouter Model Not Found (404): {e}")
+        logger.error(f"Model not found for '{name}': {e}")
         return fallback_result
     except openai.APIError as e:
-        logger.error(f"OpenRouter API error for '{name}': {e.__class__.__name__}")
-        if "402" in str(e) or getattr(e, "status_code", None) == 402:
-            st.error(f"OpenRouter Payment Required (402): {e}")
-        elif getattr(e, "status_code", None) == 500:
-            st.error(f"OpenRouter Internal Server Error (500): {e}")
-        else:
-            st.error(f"OpenRouter API Error: {e}")
-        return fallback_result
-    except json.JSONDecodeError as e:
-        logger.error("Invalid JSON received from LLM.")
-        st.error(f"JSON Decode Error: {e}")
-        return fallback_result
-    except ValueError as e:
-        logger.error(f"Validation error for '{name}': {str(e)}")
-        st.error(f"Validation Error: {e}")
+        logger.error(f"OpenRouter API error for '{name}': {e.__class__.__name__} - {e}")
         return fallback_result
     except Exception as e:
-        import traceback
-        print(traceback.format_exc())
-        print(e)
-        raise
+        logger.exception(f"Unexpected error classifying '{name}': {e}")
+        return fallback_result
