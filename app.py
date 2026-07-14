@@ -45,10 +45,16 @@ Influencers:
             messages=[{"role": "user", "content": prompt}],
             temperature=0.3
         )
-        st.markdown(response.choices[0].message.content)
+        content = response.choices[0].message.content
+        if not content:
+            st.error("OpenRouter returned empty content.")
+            return
+        st.markdown(content)
     except Exception as e:
-        logger.error(f"Failed to generate AI summary: {e}")
-        st.error("Could not generate AI summary at this time.")
+        import traceback
+        print(traceback.format_exc())
+        print(e)
+        st.exception(e)
 
 def main():
     st.title("🔍 AI-Powered Influencer Intelligence Platform")
@@ -219,10 +225,17 @@ Influencers: {top_5}
                             messages=[{"role": "user", "content": prompt}],
                             temperature=0.3
                         )
-                        st.session_state.ai_summary_text = response.choices[0].message.content
+                        content = response.choices[0].message.content
+                        if not content:
+                            st.session_state.ai_summary_text = "OpenRouter returned empty content."
+                        else:
+                            st.session_state.ai_summary_text = content
                     except Exception as e:
-                        logger.error(f"Failed to generate AI summary: {e}")
-                        st.session_state.ai_summary_text = "Could not generate AI summary at this time."
+                        import traceback
+                        print(traceback.format_exc())
+                        print(e)
+                        st.exception(e)
+                        st.session_state.ai_summary_text = f"Could not generate AI summary at this time. Error: {e}"
                         
         st.markdown(st.session_state.ai_summary_text)
 

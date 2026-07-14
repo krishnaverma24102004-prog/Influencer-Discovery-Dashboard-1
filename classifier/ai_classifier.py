@@ -1,6 +1,7 @@
 import json
 import logging
 from typing import Dict, Any
+from openai import OpenAI
 import openai
 import app_config as config
 
@@ -8,9 +9,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize OpenAI client with OpenRouter
 if getattr(config, "OPENROUTER_API_KEY", ""):
-    client = openai.OpenAI(
-        base_url=getattr(config, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"),
+    client = OpenAI(
         api_key=config.OPENROUTER_API_KEY,
+        base_url=getattr(config, "OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
     )
 else:
     client = None
@@ -108,31 +109,45 @@ Return ONLY valid JSON in the exact format below:
         logger.info("AI classification successful.")
         return validated_result
 
-    except openai.APITimeoutError:
+    except openai.APITimeoutError as e:
         logger.error(f"Network timeout while classifying '{name}'.")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        st.error(f"OpenRouter Timeout: {e}")
         return fallback_result
-    except openai.RateLimitError:
+    except openai.RateLimitError as e:
         logger.error(f"Rate limit or quota exceeded while classifying '{name}'.")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        st.error(f"OpenRouter Rate Limit (429): {e}")
         return fallback_result
-    except openai.APIConnectionError:
+    except openai.APIConnectionError as e:
         logger.error(f"Network connection error while classifying '{name}'.")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        st.error(f"OpenRouter Connection Error: {e}")
+        return fallback_result
+    except openai.AuthenticationError as e:
+        logger.error(f"Authentication error for '{name}'.")
+        st.error(f"OpenRouter Authentication Error (401/403): {e}")
+        return fallback_result
+    except openai.NotFoundError as e:
+        logger.error(f"Model not found for '{name}'.")
+        st.error(f"OpenRouter Model Not Found (404): {e}")
         return fallback_result
     except openai.APIError as e:
         logger.error(f"OpenRouter API error for '{name}': {e.__class__.__name__}")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        if "402" in str(e) or getattr(e, "status_code", None) == 402:
+            st.error(f"OpenRouter Payment Required (402): {e}")
+        elif getattr(e, "status_code", None) == 500:
+            st.error(f"OpenRouter Internal Server Error (500): {e}")
+        else:
+            st.error(f"OpenRouter API Error: {e}")
         return fallback_result
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
         logger.error("Invalid JSON received from LLM.")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        st.error(f"JSON Decode Error: {e}")
         return fallback_result
     except ValueError as e:
         logger.error(f"Validation error for '{name}': {str(e)}")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
+        st.error(f"Validation Error: {e}")
         return fallback_result
     except Exception as e:
-        logger.error(f"Unexpected error classifying '{name}': {e.__class__.__name__}")
-        logger.warning("AI unavailable. Switching to keyword classifier.")
-        return fallback_result
+        import traceback
+        print(traceback.format_exc())
+        print(e)
+        raise

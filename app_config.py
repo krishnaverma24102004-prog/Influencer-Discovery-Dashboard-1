@@ -1,14 +1,24 @@
 import os
 import logging
+import streamlit as st
 from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
 
+# Helper to get secrets securely in Streamlit
+def get_secret(key, default=""):
+    try:
+        if key in st.secrets:
+            return st.secrets[key]
+    except Exception:
+        pass
+    return os.getenv(key, default)
+
 # --------------------------------------------------
 # Logging Configuration
 # --------------------------------------------------
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+LOG_LEVEL = get_secret("LOG_LEVEL", "INFO").upper()
 
 logging.basicConfig(
     level=getattr(logging, LOG_LEVEL, logging.INFO),
@@ -22,28 +32,18 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------
 
 # OpenRouter
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
+OPENROUTER_API_KEY = get_secret("OPENROUTER_API_KEY", "")
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 # LLM Model (Configurable)
-LLM_MODEL = os.getenv(
-    "LLM_MODEL",
-    "openrouter/free"
-)
+LLM_MODEL = get_secret("OPENROUTER_MODEL", get_secret("LLM_MODEL", "openrouter/free"))
 
 # Optional OpenRouter headers
-APP_NAME = os.getenv(
-    "OPENROUTER_APP_NAME",
-    "AI Influencer Intelligence Platform"
-)
-
-SITE_URL = os.getenv(
-    "OPENROUTER_SITE_URL",
-    "http://localhost:8501"
-)
+APP_NAME = get_secret("OPENROUTER_APP_NAME", "AI Influencer Intelligence Platform")
+SITE_URL = get_secret("OPENROUTER_SITE_URL", "http://localhost:8501")
 
 # Search Provider
-SERPAPI_API_KEY = os.getenv("SERPAPI_API_KEY", "")
+SERPAPI_API_KEY = get_secret("SERPAPI_API_KEY", "")
 
 # --------------------------------------------------
 # Cache Configuration
